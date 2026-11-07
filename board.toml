@@ -96,8 +96,16 @@ panic_screen = true
 # starts the HID device that turns its contacts into reports (kits/fuxi/FuxiHidProbe.cpp; sheng-touch-hid=1 gives that device
 # its digitizer collection), and fuxi-touch-panic=2 panics with the probe's rows after the first lift, so the result can be
 # read from the panic screen. Without a touch the boot ends in the root device wait.
+# rd=md0-ramblock names the RAM block disk as a ramdisk root and is not the three-letter "md0" this kernel takes as its
+# rooted-ramdisk marker, so bsd_init skips the sealed root check and still walks to the volume root_match_volume_uuid names
+# (bsd_init.c; evidence/2026-11-02-first-boot.md, image r3-ramblock).
 kernel_args = ["-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "sheng-pmgr=2", "sheng-smp=1", "armcpu-spi-ipi=1",
-               "armcpu-self-ipi=1", "fuxi-touch=4", "fuxi-touch-hid=1", "sheng-touch-hid=1", "fuxi-touch-panic=2"]
+               "armcpu-self-ipi=1", "fuxi-touch=4", "fuxi-touch-hid=1", "sheng-touch-hid=1", "fuxi-touch-panic=2",
+               "rd=md0-ramblock"]
+# The trust cache that signs the restore ramdisk's userland, and the only one this board accepts: RestoreTrustCache,
+# Firmware/044-75545-038.dmg.trustcache in iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw (5921 bytes). It travels with the
+# payload as kernel.macho.trustcache; pass it as --trust-cache on every payload build.
+trust_cache_sha256 = ["377229a6742e4cbe0f91375c31ce23a7045428a5098ce1a7253d279862aae66b"]
 
 [payload.adt]
 # Supply the board's identity seed through --unique-chip-id.
@@ -105,3 +113,11 @@ chip_id = "207"
 unique_chip_id = "required"
 # Memory DarwinBoot gives XNU, as mouse233's fuxi RAM-root port uses it (verified there on this phone model).
 owned_memory_size = "0x130000000"
+# The root the RAM block carries: the APFS volume inside the IPSW restore ramdisk. RestoreRamDisk 044-75545-038.dmg in
+# iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw is an IM4P whose payload is the whole container (176 MiB, 4096 byte blocks,
+# 45056 blocks); its volume superblock carries this UUID, which scripts/unpack-restore-ramdisk.py reads back before the
+# image is packed.
+root_match_volume_uuid = "9071148B-B025-402D-AD7A-48464D8B5FFF"
+# The restore ramdisk travels packed (DBRDISK1, scripts/pack-data-ramdisk.py): 176 MiB dense does not fit the 192 MiB
+# payload volume next to the prelinked kernel, 131 MiB packed does.
+packed_data_ramdisk = true
