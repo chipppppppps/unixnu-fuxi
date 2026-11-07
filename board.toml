@@ -103,14 +103,14 @@ kernel_args = ["-v", "serial=3", "debug=0x14e", "kt_fixed_zones=120", "sheng-pmg
                "armcpu-self-ipi=1", "fuxi-touch=4", "fuxi-touch-hid=1", "sheng-touch-hid=1", "fuxi-touch-panic=2",
                "rd=md0-ramblock"]
 # The trust cache the payload carries as kernel.macho.trustcache. DarwinBoot's ValidTrustCaches
-# (drivers/DarwinBoot/DarwinBootPkg/Driver/DarwinBoot.c) reads a container of version 2 modules, so this is the
-# two-module bundle scripts/pack-trust-bundle.py builds from the IPSW's StaticTrustCache
-# (Firmware/044-76040-038.dmg.trustcache, 2478 entries) and Cryptex1,SystemTrustCache
-# (Firmware/044-76034-038.dmg.trustcache, 76 entries): 61356 bytes, modules da88460e... and d121ba89... unchanged.
-# The bundle hash below is the one profiles/os/ipados-17.7.11-21H461/profile.toml pins. RestoreTrustCache cannot be
-# the payload's trust cache: its module is version 1, which ValidTrustCaches refuses, so DarwinBoot returns
-# EFI_COMPROMISED_DATA and the menu comes back instead of the boot.
-trust_cache_sha256 = ["7416ca4f8377146626bb284e2133c76bee6cb4e3ee0af5d648b186235a7323a7"]
+# (drivers/DarwinBoot/DarwinBootPkg/Driver/DarwinBoot.c) reads a container of version 2 modules, and the IPSW's
+# RestoreTrustCache is a version 1 module (uuid cfc8a0d56fb24d6c8b9bd3976ce18057, 267 entries of 22 bytes), so
+# scripts/pack-restore-trust.py re-serialises it: same header, same cdhashes, each entry widened to the 24 bytes
+# ValidTrustCaches reads (its flag byte is at offset 20). 6432-byte module in an 8-byte table, 6440 bytes in all.
+# The restore cdhashes are the ones that sign the restore ramdisk's own /sbin/launchd; the static and System modules
+# (scripts/pack-trust-bundle.py, bundle 7416ca4f...) cover the OS volumes instead, and with those in place launchd
+# execs and is then killed, so the boot stops at "initproc failed to start" (bsd/kern/kern_exit.c, proc_handle_critical_exit).
+trust_cache_sha256 = ["750b5d8ac5f5b52b8fd02d261caf96dd318db0904b3651ca05d9ae4939de488a"]
 
 [payload.adt]
 # Supply the board's identity seed through --unique-chip-id.
