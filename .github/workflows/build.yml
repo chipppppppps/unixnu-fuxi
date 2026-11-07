@@ -204,9 +204,28 @@ jobs:
             echo "::error::RAM block binding check failed"; missing=1
           fi
           exit $missing
+      - name: Fetch the restore ramdisk
+        working-directory: unixnu
+        run: |
+          # Without a disk behind the RAM block the boot ends in the root device wait. This brings the IPSW restore ramdisk
+          # (a whole 176 MiB APFS container) and the trust cache that signs its userland, unpacks the IM4P wrapper and packs
+          # the container into the DBRDISK1 form DarwinBoot expands, which is what fits next to the prelinked kernel.
+          ./unixnu ipsw fetch RestoreRamDisk RestoreTrustCache --device "$GITHUB_WORKSPACE/fuxi"
+          ramdisk=$(ls out/ipsw/*/*.dmg | head -n 1)
+          trust=$(ls out/ipsw/*/*.dmg.trustcache | head -n 1)
+          [ -n "$ramdisk" ] && [ -n "$trust" ] || { echo "::error::restore ramdisk or its trust cache missing"; exit 1; }
+          python3 "$GITHUB_WORKSPACE/fuxi/scripts/unpack-restore-ramdisk.py" "$ramdisk" "$RUNNER_TEMP/restore-ramdisk.img" \
+            --report "$RUNNER_TEMP/restore-ramdisk.json"
+          python3 "$GITHUB_WORKSPACE/fuxi/scripts/pack-data-ramdisk.py" "$RUNNER_TEMP/restore-ramdisk.img" \
+            "$RUNNER_TEMP/restore-ramdisk.dbr" --report "$RUNNER_TEMP/restore-ramdisk.dbr.json"
+          echo "UNIXNU_TRUST_CACHE=$PWD/$trust" >> "$GITHUB_ENV"
+          echo "UNIXNU_DATA_RAMDISK=$RUNNER_TEMP/restore-ramdisk.dbr" >> "$GITHUB_ENV"
       - name: Build payload
         working-directory: unixnu
-        run: ./unixnu build payload --device "$GITHUB_WORKSPACE/fuxi" --uefi "$GITHUB_WORKSPACE/uefi-fuxi" --unique-chip-id "$BRINGUP_SEED"
+        run: |
+          ./unixnu build payload --device "$GITHUB_WORKSPACE/fuxi" --uefi "$GITHUB_WORKSPACE/uefi-fuxi" \
+            --unique-chip-id "$BRINGUP_SEED" --trust-cache "$UNIXNU_TRUST_CACHE" --data-ramdisk "$UNIXNU_DATA_RAMDISK"
+          cat "$(find out -path '*/payload/payload.json' | head -n 1)"
       - name: Build firmware
         working-directory: unixnu
         # DEBUG: the firmware prints its log on the panel, the only console before the touch report.
