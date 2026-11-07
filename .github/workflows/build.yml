@@ -204,21 +204,28 @@ jobs:
             echo "::error::RAM block binding check failed"; missing=1
           fi
           exit $missing
-      - name: Fetch the restore ramdisk
+      - name: Fetch the restore ramdisk and the trust bundle
         working-directory: unixnu
         run: |
           # Without a disk behind the RAM block the boot ends in the root device wait. This brings the IPSW restore ramdisk
-          # (a whole 176 MiB APFS container) and the trust cache that signs its userland, unpacks the IM4P wrapper and packs
-          # the container into the DBRDISK1 form DarwinBoot expands, which is what fits next to the prelinked kernel.
-          ./unixnu ipsw fetch RestoreRamDisk RestoreTrustCache --device "$GITHUB_WORKSPACE/fuxi"
+          # (a whole 176 MiB APFS container), unpacks the IM4P wrapper and packs the container into the DBRDISK1 form
+          # DarwinBoot expands, which is what fits next to the prelinked kernel.
+          ./unixnu ipsw fetch RestoreRamDisk StaticTrustCache Cryptex1,SystemTrustCache --device "$GITHUB_WORKSPACE/fuxi"
           ramdisk=$(ls out/ipsw/*/*.dmg | head -n 1)
-          trust=$(ls out/ipsw/*/*.dmg.trustcache | head -n 1)
-          [ -n "$ramdisk" ] && [ -n "$trust" ] || { echo "::error::restore ramdisk or its trust cache missing"; exit 1; }
+          [ -n "$ramdisk" ] || { echo "::error::restore ramdisk missing"; exit 1; }
           python3 "$GITHUB_WORKSPACE/fuxi/scripts/unpack-restore-ramdisk.py" "$ramdisk" "$RUNNER_TEMP/restore-ramdisk.img" \
             --report "$RUNNER_TEMP/restore-ramdisk.json"
           python3 "$GITHUB_WORKSPACE/fuxi/scripts/pack-data-ramdisk.py" "$RUNNER_TEMP/restore-ramdisk.img" \
             "$RUNNER_TEMP/restore-ramdisk.dbr" --report "$RUNNER_TEMP/restore-ramdisk.dbr.json"
-          echo "UNIXNU_TRUST_CACHE=$PWD/$trust" >> "$GITHUB_ENV"
+          # kernel.macho.trustcache is the container of version 2 modules ValidTrustCaches reads, not an IM4P: unwrap the
+          # two modules the OS profile pins and bundle them (scripts/pack-trust-bundle.py). The restore trust cache stays
+          # out of it, because its module is version 1 and ValidTrustCaches refuses anything but version 2.
+          static=$(python3 -c "import glob,json;print(next(p[:-5] for p in sorted(glob.glob('out/ipsw/*/*.json')) if json.load(open(p))['component']=='StaticTrustCache'))")
+          system=$(python3 -c "import glob,json;print(next(p[:-5] for p in sorted(glob.glob('out/ipsw/*/*.json')) if json.load(open(p))['component']=='Cryptex1,SystemTrustCache'))")
+          [ -n "$static" ] && [ -n "$system" ] || { echo "::error::trust cache modules missing"; exit 1; }
+          python3 "$GITHUB_WORKSPACE/fuxi/scripts/pack-trust-bundle.py" "$static" "$system" \
+            "$RUNNER_TEMP/kernel.macho.trustcache" --report "$RUNNER_TEMP/kernel.macho.trustcache.json"
+          echo "UNIXNU_TRUST_CACHE=$RUNNER_TEMP/kernel.macho.trustcache" >> "$GITHUB_ENV"
           echo "UNIXNU_DATA_RAMDISK=$RUNNER_TEMP/restore-ramdisk.dbr" >> "$GITHUB_ENV"
       - name: Build payload
         working-directory: unixnu
